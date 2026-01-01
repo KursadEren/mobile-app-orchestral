@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """
-Mobil Uygulama Üretici - AI Agent Sistemi
+Mobil Uygulama Üretici - Gelişmiş AI Agent Sistemi
 Kullanıcı isteğine göre otomatik Flutter uygulaması üretir
+- Çoklu plan seçenekleri
+- İterasyon desteği
+- Kod review
+- İnteraktif kullanıcı deneyimi
 """
 
 import os
+import json
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
-from agents import PlannerAgent, CoderAgent, TesterAgent
+from agents import PlannerAgent, CoderAgent, TesterAgent, ReviewerAgent, OrchestratorAgent
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.markdown import Markdown
 
 # .env dosyasını yükle
 load_dotenv()
@@ -19,115 +24,172 @@ load_dotenv()
 console = Console()
 
 
-def main():
-    # API key kontrolü
+def print_banner():
+    """Başlangıç banner'ını gösterir"""
+    banner = """
+    ╔══════════════════════════════════════════════════╗
+    ║                                                  ║
+    ║     🤖 ORKESTRAL MOBİL UYGULAMA ÜRETİCİ         ║
+    ║                                                  ║
+    ║     AI Agent Sistemi - Flutter Generator        ║
+    ║                                                  ║
+    ╚══════════════════════════════════════════════════╝
+    """
+    console.print(banner, style="bold cyan")
+    console.print("\n[dim]Birden fazla plan seçeneği • İterasyon desteği • AI Kod Review[/]\n")
+
+
+def check_api_key() -> str:
+    """API key kontrolü yapar"""
     api_key = os.getenv("ANTHROPIC_API_KEY")
 
     if not api_key or api_key == "buraya_api_keyini_yaz":
-        console.print("[bold red]❌ HATA: API key bulunamadı![/]")
-        console.print("\n[yellow]Lütfen .env dosyasını oluştur ve ANTHROPIC_API_KEY ekle:[/]")
-        console.print("[cyan]1. .env.example dosyasını kopyala → .env[/]")
-        console.print("[cyan]2. ANTHROPIC_API_KEY=sk-ant-... şeklinde key'ini ekle[/]")
-        console.print("[cyan]3. Tekrar çalıştır: python main.py[/]")
-        return
+        console.print(Panel(
+            "[bold red]❌ API KEY BULUNAMADI![/]\n\n"
+            "[yellow]Lütfen şu adımları takip edin:[/]\n\n"
+            "1️⃣  [cyan].env.example[/] dosyasını [cyan].env[/] olarak kopyalayın:\n"
+            "   [dim]cp .env.example .env[/]\n\n"
+            "2️⃣  [cyan].env[/] dosyasını açın ve API key'inizi ekleyin:\n"
+            "   [dim]ANTHROPIC_API_KEY=sk-ant-api03-...[/]\n\n"
+            "3️⃣  API key almak için:\n"
+            "   [dim]https://console.anthropic.com[/]\n\n"
+            "4️⃣  Programı tekrar çalıştırın:\n"
+            "   [dim]python main.py[/]",
+            border_style="red",
+            title="Kurulum Gerekli"
+        ))
+        exit(1)
 
-    # Header
-    console.print(Panel.fit(
-        "[bold blue]🤖 MOBIL UYGULAMA ÜRETİCİ[/]\n"
-        "[dim]AI Agent Sistemi - Flutter Uygulama Üretici[/]",
-        border_style="blue"
-    ))
+    return api_key
 
-    # Kullanıcı girişi
-    console.print("\n[bold green]Ne tür bir mobil uygulama istiyorsun?[/]")
-    console.print("[dim]Örnek: 'Bir todo listesi uygulaması', 'Hava durumu uygulaması'[/]\n")
+
+def get_user_request() -> str:
+    """Kullanıcıdan uygulama isteği alır"""
+    console.print("[bold green]Ne tür bir mobil uygulama istiyorsun?[/]\n")
+
+    console.print("[dim]💡 Örnekler:[/]")
+    examples = [
+        "• Bir todo listesi uygulaması",
+        "• Hesap makinesi",
+        "• Not defteri uygulaması",
+        "• Hava durumu uygulaması",
+        "• Quiz oyunu"
+    ]
+    for ex in examples:
+        console.print(f"  [cyan]{ex}[/]")
+
+    console.print()
     user_request = input("➜ ")
 
     if not user_request.strip():
-        console.print("[red]Lütfen bir uygulama açıklaması gir![/]")
-        return
+        console.print("[red]Lütfen bir uygulama açıklaması girin![/]")
+        exit(1)
 
-    # LLM başlat
-    try:
-        llm = ChatAnthropic(
-            model="claude-sonnet-4-20250514",
-            api_key=api_key,
-            temperature=0.7
-        )
-    except Exception as e:
-        console.print(f"[red]❌ LLM başlatılamadı: {e}[/]")
-        return
+    return user_request.strip()
 
-    # Agentları oluştur
-    planner = PlannerAgent(llm)
-    coder = CoderAgent(llm)
-    tester = TesterAgent(llm)
 
-    # İşlem başlasın
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console
-    ) as progress:
-
-        # 1. PLANLAMA
-        task1 = progress.add_task("[cyan]📋 Uygulama planlanıyor...", total=None)
-        try:
-            plan = planner.create_plan(user_request)
-            progress.update(task1, completed=True)
-            console.print("[green]✅ Plan hazır![/]")
-        except Exception as e:
-            console.print(f"[red]❌ Planlama hatası: {e}[/]")
-            return
-
-        # 2. KOD YAZMA
-        task2 = progress.add_task("[cyan]💻 Flutter kodu yazılıyor...", total=None)
-        try:
-            code = coder.generate_code(plan)
-            progress.update(task2, completed=True)
-            console.print("[green]✅ Kod yazıldı![/]")
-        except Exception as e:
-            console.print(f"[red]❌ Kod yazma hatası: {e}[/]")
-            return
-
-        # 3. TEST YAZMA
-        task3 = progress.add_task("[cyan]🧪 Testler yazılıyor...", total=None)
-        try:
-            tests = tester.generate_tests(code)
-            progress.update(task3, completed=True)
-            console.print("[green]✅ Testler yazıldı![/]")
-        except Exception as e:
-            console.print(f"[red]❌ Test yazma hatası: {e}[/]")
-            return
-
-    # Output klasörü oluştur
+def save_outputs(result: dict):
+    """Sonuçları dosyalara kaydeder"""
     os.makedirs("output", exist_ok=True)
 
-    # Dosyaları kaydet
+    # Plan kaydet
     with open("output/plan.json", "w", encoding="utf-8") as f:
-        f.write(plan)
+        json.dump(result["plan"], f, ensure_ascii=False, indent=2)
 
+    # Kod kaydet
     with open("output/main.dart", "w", encoding="utf-8") as f:
-        f.write(code)
+        f.write(result["code"])
 
+    # Test kaydet
     with open("output/main_test.dart", "w", encoding="utf-8") as f:
-        f.write(tests)
+        f.write(result["tests"])
 
-    # Sonuç raporu
-    console.print("\n" + "="*60)
+    # Review kaydet
+    with open("output/review.json", "w", encoding="utf-8") as f:
+        json.dump(result["review"], f, ensure_ascii=False, indent=2)
+
+
+def print_success_message():
+    """Başarı mesajını gösterir"""
+    console.print("\n" + "="*70)
     console.print(Panel.fit(
-        "[bold green]🎉 UYGULAMA OLUŞTURULDU![/]\n\n"
-        "[cyan]📁 Dosyalar:[/]\n"
-        "  • output/plan.json      → Uygulama planı\n"
-        "  • output/main.dart      → Flutter kodu\n"
-        "  • output/main_test.dart → Test kodları\n\n"
-        "[yellow]📝 Sonraki Adımlar:[/]\n"
-        "  1. Flutter projesine kodu kopyala\n"
-        "  2. flutter run ile çalıştır\n"
-        "  3. flutter test ile testleri çalıştır",
+        "[bold green]🎉 UYGULAMA BAŞARIYLA OLUŞTURULDU![/]\n\n"
+        "[cyan]📁 Oluşturulan Dosyalar:[/]\n"
+        "  • [yellow]output/plan.json[/]      → Seçilen plan detayları\n"
+        "  • [yellow]output/main.dart[/]      → Flutter uygulama kodu\n"
+        "  • [yellow]output/main_test.dart[/] → Test kodları\n"
+        "  • [yellow]output/review.json[/]    → AI kod review raporu\n\n"
+        "[cyan]📝 Sonraki Adımlar:[/]\n"
+        "  1. Flutter projesine kodu kopyalayın\n"
+        "  2. [dim]flutter run[/] ile uygulamayı çalıştırın\n"
+        "  3. [dim]flutter test[/] ile testleri çalıştırın\n\n"
+        "[dim]Detaylı kullanım için: NASIL_KULLANILIR.md[/]",
         border_style="green",
-        title="Başarılı!"
+        title="✅ Başarılı!"
     ))
+    console.print("="*70 + "\n")
+
+
+def main():
+    """Ana program"""
+    try:
+        # Banner
+        print_banner()
+
+        # API key kontrolü
+        api_key = check_api_key()
+
+        # LLM başlat
+        console.print("[dim]🔧 AI modeli başlatılıyor...[/]")
+        try:
+            llm = ChatAnthropic(
+                model="claude-sonnet-4-20250514",
+                api_key=api_key,
+                temperature=0.7,
+                max_tokens=4096
+            )
+        except Exception as e:
+            console.print(f"[red]❌ LLM başlatma hatası: {e}[/]")
+            console.print("[yellow]API key'inizi kontrol edin.[/]")
+            exit(1)
+
+        # Agent'ları başlat
+        console.print("[dim]🤖 AI agentlar hazırlanıyor...[/]")
+        planner = PlannerAgent(llm)
+        coder = CoderAgent(llm)
+        tester = TesterAgent(llm)
+        reviewer = ReviewerAgent(llm)
+        orchestrator = OrchestratorAgent(llm, planner, coder, tester, reviewer)
+
+        console.print("[green]✅ Sistem hazır![/]\n")
+
+        # Kullanıcı isteğini al
+        user_request = get_user_request()
+
+        console.print("\n[bold cyan]🚀 İşlem başlatılıyor...[/]\n")
+
+        # Orchestrator'ı çalıştır
+        result = orchestrator.run(user_request)
+
+        # Sonuç kontrolü
+        if result["status"] == "cancelled":
+            console.print(f"\n[yellow]⚠️  İşlem iptal edildi: {result['reason']}[/]")
+            exit(0)
+
+        # Dosyaları kaydet
+        console.print("\n[dim]💾 Dosyalar kaydediliyor...[/]")
+        save_outputs(result)
+
+        # Başarı mesajı
+        print_success_message()
+
+    except KeyboardInterrupt:
+        console.print("\n\n[yellow]⚠️  İşlem kullanıcı tarafından iptal edildi.[/]")
+        exit(0)
+    except Exception as e:
+        console.print(f"\n[red]❌ Beklenmeyen hata: {e}[/]")
+        console.print("[dim]Lütfen GitHub'da issue açın: https://github.com/KursadEren/mobile-app-orchestral/issues[/]")
+        exit(1)
 
 
 if __name__ == "__main__":
