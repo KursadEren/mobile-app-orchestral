@@ -38,6 +38,17 @@ jobs:
           GITHUB_USERNAME=${{ github.repository_owner }}
           EOF
 
+      - name: Debug - Check Environment
+        run: |
+          echo "Checking API key length: ${#ANTHROPIC_API_KEY}"
+          echo "Checking GH_PAT length: ${#GITHUB_TOKEN}"
+          echo "Username: $GITHUB_USERNAME"
+          python -c "import os; print('API Key exists:', bool(os.getenv('ANTHROPIC_API_KEY')))"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_USERNAME: ${{ github.repository_owner }}
+
       - name: Run App Generator (Auto Batch Mode)
         run: python main.py --auto-batch
         env:
