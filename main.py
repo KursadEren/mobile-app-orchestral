@@ -97,7 +97,7 @@ def init_llm(api_key: str):
     console.print("[dim]🔧 AI modeli başlatılıyor...[/]")
     try:
         llm = ChatAnthropic(
-            model="claude-sonnet-4-20250514",
+            model="claude-3-haiku-20240307",
             api_key=api_key,
             temperature=0.7,
             max_tokens=4096
