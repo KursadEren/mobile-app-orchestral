@@ -10,6 +10,7 @@ Orkestral Mobil Uygulama Üretici - Gelişmiş AI Agent Sistemi
 import os
 import sys
 import json
+import argparse
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from agents import (
@@ -211,8 +212,32 @@ def save_batch_summary(results: list):
     console.print(f"\n[dim]📁 Özet kaydedildi: output/batch/summary.json[/]")
 
 
+def run_auto_batch_mode(llm, github_token: str, github_username: str):
+    """Otomatik batch modu - onay istemeden çalışır (CI/CD için)"""
+    console.print("\n[bold cyan]🚀 OTOMATİK BATCH MOD - 10 UYGULAMA[/]\n")
+
+    # QuickBatchOrchestrator kullan (onay istemez)
+    batch = QuickBatchOrchestrator(llm, github_token, github_username)
+
+    # Çalıştır
+    results = batch.run(auto_approve=True)
+
+    # Sonuçları kaydet
+    save_batch_summary(results)
+
+    return results
+
+
 def main():
     """Ana program"""
+    # Argument parser
+    parser = argparse.ArgumentParser(description='Orkestral Mobil Uygulama Üretici')
+    parser.add_argument('--auto-batch', action='store_true',
+                        help='Otomatik batch modu (CI/CD için, onay istemez)')
+    parser.add_argument('--mode', type=str, choices=['1', '2'],
+                        help='Mod seçimi: 1=Tek uygulama, 2=Batch')
+    args = parser.parse_args()
+
     try:
         # Banner
         print_main_banner()
@@ -220,15 +245,50 @@ def main():
         # API key kontrolü
         api_key = check_api_key()
 
-        # Mod seçimi
-        mode = Prompt.ask(
-            "\n[bold cyan]Hangi modu kullanmak istiyorsun?[/]",
-            choices=["1", "2"],
-            default="1"
-        )
-
         # LLM başlat
         llm = init_llm(api_key)
+
+        # Otomatik batch modu (GitHub Actions için)
+        if args.auto_batch or args.mode == '2':
+            github_token, github_username = check_github_credentials()
+
+            if not github_token or not github_username:
+                console.print("[red]❌ GitHub ayarları eksik![/]")
+                sys.exit(1)
+
+            if args.auto_batch:
+                # Tamamen otomatik, onay yok
+                run_auto_batch_mode(llm, github_token, github_username)
+            else:
+                # Normal batch modu (onay ister)
+                console.print(Panel(
+                    "[bold yellow]⚠️ BATCH MOD UYARISI[/]\n\n"
+                    "Bu mod şunları yapacak:\n\n"
+                    "1️⃣  AI ile 10 farklı uygulama fikri üretecek\n"
+                    "2️⃣  Her biri için Flutter kodu yazacak\n"
+                    "3️⃣  Her biri için testler üretecek\n"
+                    "4️⃣  Her birini AYRI GitHub repo'suna yükleyecek\n"
+                    f"   [dim]({github_username}/ altında private repo'lar)[/]\n\n"
+                    "[cyan]Tahmini süre: 15-30 dakika[/]\n"
+                    "[cyan]Tahmini maliyet: ~$0.50-1.00[/]",
+                    border_style="yellow"
+                ))
+
+                if Confirm.ask("\n[bold]Devam etmek istiyor musun?[/]", default=True):
+                    run_batch_mode(llm, github_token, github_username)
+                else:
+                    console.print("[yellow]İşlem iptal edildi.[/]")
+            return
+
+        # Mod seçimi (interaktif)
+        if args.mode:
+            mode = args.mode
+        else:
+            mode = Prompt.ask(
+                "\n[bold cyan]Hangi modu kullanmak istiyorsun?[/]",
+                choices=["1", "2"],
+                default="1"
+            )
 
         if mode == "1":
             # Tek uygulama modu

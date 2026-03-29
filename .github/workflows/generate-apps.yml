@@ -2,15 +2,9 @@ name: Generate 10 Mobile Apps
 
 on:
   workflow_dispatch:
-    inputs:
-      mode:
-        description: 'Mode: 1=Single App, 2=Batch (10 apps)'
-        required: true
-        default: '2'
-        type: choice
-        options:
-          - '1'
-          - '2'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   generate:
@@ -31,6 +25,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Configure Git
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+
       - name: Create .env file
         run: |
           cat > .env << EOF
@@ -39,12 +38,12 @@ jobs:
           GITHUB_USERNAME=${{ github.repository_owner }}
           EOF
 
-      - name: Run App Generator
-        run: |
-          echo "${{ github.event.inputs.mode }}" | python main.py
+      - name: Run App Generator (Auto Batch Mode)
+        run: python main.py --auto-batch
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_USERNAME: ${{ github.repository_owner }}
 
       - name: Upload output artifacts
         uses: actions/upload-artifact@v4
