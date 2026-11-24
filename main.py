@@ -104,6 +104,16 @@ def check_github_credentials() -> tuple:
 #     this model" hatası veriyor), bu yüzden hiç gönderilmiyor.
 #   - 128000 token'lık çıktı HTTP timeout'una girmesin diye streaming açık.
 #
+# MAX_TOKENS neden tam 128000 (tahmin değil, canlı doğrulandı):
+#   - GET /v1/models/claude-sonnet-5-5  ->  "max_tokens": 128000
+#   - Aşağıdaki ayarla (streaming=True) minik bir çağrı KABUL edildi.
+#   - max_tokens=200000 denendiğinde API'nin kendi cevabı:
+#       "max_tokens: 200000 > 128000, which is the maximum allowed number
+#        of output tokens for claude-sonnet-5-5"
+#     Yani 128000 modelin kendi beyan ettiği üst sınır.
+#   - 64000 de kabul ediliyor; ihtiyaç olursa düşürmek güvenli. (claude-api
+#     skill'indeki 64K rakamı Sonnet 4.6 satırı içindir, Sonnet 5.5'ten eski.)
+#
 # Git geçmişindeki tutarsızlık: 999f533 "Switch to Claude Haiku" diyordu ama
 # 597a043 modeli Sonnet'e geri aldı. Son karar Sonnet olduğu için güncel
 # Sonnet'te (5.5) sabitlendi.
