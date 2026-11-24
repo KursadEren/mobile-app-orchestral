@@ -5,6 +5,8 @@ Reviewer Agent - Kod kalitesi değerlendirme uzmanı
 
 from typing import Dict
 
+from .temizle import json_temizle
+
 
 class ReviewerAgent:
     """Kod review yapan AI agent"""
@@ -64,13 +66,8 @@ SADECE JSON döndür."""
 
         try:
             response = self.llm.invoke(prompt)
-            content = response.content.strip()
-
-            # JSON temizle
-            if content.startswith("```json"):
-                content = content.replace("```json", "").replace("```", "").strip()
-            elif content.startswith("```"):
-                content = content.replace("```", "", 1).rsplit("```", 1)[0].strip()
+            # JSON temizle (ortak temizleyici)
+            content = json_temizle(response.content)
 
             # Parse et
             import json

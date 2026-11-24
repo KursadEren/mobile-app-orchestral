@@ -93,15 +93,33 @@ def check_github_credentials() -> tuple:
     return github_token, github_username
 
 
+# Kullanılan model ve çıktı sınırı.
+#
+# Neden değişti:
+#   - Eski kimlik claude-3-5-sonnet-20241022 ARTIK YAYINDAN KALKTI; API
+#     bu modeli döndürmüyor, yani kod olduğu gibi çalışmıyordu.
+#   - Eski max_tokens=4096 üretilen main.dart dosyalarını satır ortasında
+#     kesiyordu. Sonnet 5.5'in üst sınırı 128000; kesilme sebebi ortadan kalkıyor.
+#   - temperature bu modelde kabul edilmiyor ("temperature is deprecated for
+#     this model" hatası veriyor), bu yüzden hiç gönderilmiyor.
+#   - 128000 token'lık çıktı HTTP timeout'una girmesin diye streaming açık.
+#
+# Git geçmişindeki tutarsızlık: 999f533 "Switch to Claude Haiku" diyordu ama
+# 597a043 modeli Sonnet'e geri aldı. Son karar Sonnet olduğu için güncel
+# Sonnet'te (5.5) sabitlendi.
+MODEL_ADI = "claude-sonnet-5-5"
+MAX_TOKENS = 128000
+
+
 def init_llm(api_key: str):
     """LLM'i başlatır"""
-    console.print("[dim]🔧 AI modeli başlatılıyor...[/]")
+    console.print(f"[dim]🔧 AI modeli başlatılıyor ({MODEL_ADI})...[/]")
     try:
         llm = ChatAnthropic(
-            model="claude-3-5-sonnet-20241022",
+            model=MODEL_ADI,
             api_key=api_key,
-            temperature=0.7,
-            max_tokens=4096
+            max_tokens=MAX_TOKENS,
+            streaming=True,
         )
         return llm
     except Exception as e:
@@ -175,13 +193,41 @@ def save_single_output(result: dict):
     with open("output/review.json", "w", encoding="utf-8") as f:
         json.dump(result.get("review", {}), f, ensure_ascii=False, indent=2)
 
-    console.print(Panel.fit(
-        "[bold green]🎉 UYGULAMA OLUŞTURULDU![/]\n\n"
+    kapi = result.get("kapi") or {}
+    with open("output/kapi.json", "w", encoding="utf-8") as f:
+        json.dump(
+            {k: v for k, v in kapi.items() if k != "log"},
+            f, ensure_ascii=False, indent=2
+        )
+
+    dosyalar = (
         "[cyan]📁 Dosyalar:[/]\n"
         "  • output/plan.json\n"
         "  • output/main.dart\n"
         "  • output/main_test.dart\n"
-        "  • output/review.json",
+        "  • output/review.json\n"
+        "  • output/kapi.json"
+    )
+
+    # Kapı kırmızıysa "oluşturuldu" DEME. Doğrulanmamış kod iyi haber değildir.
+    if result.get("status") == "kapi_kirmizi":
+        proje_yolu = result.get("proje_yolu", "output/tek/...")
+        console.print(Panel.fit(
+            "[bold red]🚦 DOĞRULAMA KAPISI KIRMIZI[/]\n\n"
+            f"[yellow]{result.get('error', 'flutter analyze / flutter test geçmedi')}[/]\n\n"
+            "[white]Kod üretildi ama DERLENMİŞ/DOĞRULANMIŞ değil.[/]\n"
+            f"[dim]Proje: {proje_yolu}[/]\n"
+            f"[dim]Log:   {proje_yolu}/kapi.log[/]\n\n"
+            + dosyalar,
+            border_style="red"
+        ))
+        return
+
+    console.print(Panel.fit(
+        "[bold green]🎉 UYGULAMA OLUŞTURULDU VE DOĞRULANDI![/]\n\n"
+        "[green]🚦 flutter analyze: 0 hata · flutter test: geçti[/]\n\n"
+        f"[dim]Proje: {result.get('proje_yolu', 'output/tek/...')}[/]\n\n"
+        + dosyalar,
         border_style="green"
     ))
 
@@ -193,7 +239,8 @@ def save_batch_summary(results: list):
     summary = {
         "total": len(results),
         "success": sum(1 for r in results if r["status"] == "success"),
-        "failed": sum(1 for r in results if r["status"] != "success"),
+        "kapi_kirmizi": sum(1 for r in results if r["status"] == "kapi_kirmizi"),
+        "failed": sum(1 for r in results if r["status"] not in ("success", "kapi_kirmizi")),
         "apps": []
     }
 
@@ -202,7 +249,9 @@ def save_batch_summary(results: list):
             "name": result.get("idea", {}).get("name", "N/A"),
             "status": result["status"],
             "repo_url": result.get("repo_url", None),
-            "error": result.get("error", None)
+            "error": result.get("error", None),
+            "kapi": result.get("kapi", None),
+            "kapi_log": result.get("kapi_log", None),
         }
         summary["apps"].append(app_summary)
 

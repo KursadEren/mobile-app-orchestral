@@ -4,7 +4,8 @@ Her uygulama için:
 1. Plan seçimi (onay ile)
 2. Kod üretimi
 3. Test üretimi
-4. GitHub'a yükleme
+4. DOĞRULAMA KAPISI (flutter analyze + flutter test)
+5. Yalnız kapı yeşilse GitHub'a yükleme
 """
 
 import os
@@ -24,6 +25,7 @@ from .coder import CoderAgent
 from .tester import TesterAgent
 from .reviewer import ReviewerAgent
 from .github_agent import GitHubAgent
+from .kapi import kapidan_gecir, kapi_ozeti
 
 console = Console()
 
@@ -97,13 +99,18 @@ class BatchOrchestrator:
             if result["status"] == "success":
                 console.print(f"[bold green]✅ {idea['name']} başarıyla oluşturuldu![/]")
                 console.print(f"[dim]📁 Repo: {result.get('repo_url', 'N/A')}[/]")
+            elif result["status"] == "kapi_kirmizi":
+                console.print(f"[bold yellow]🚦 {idea['name']} kapıdan geçemedi: {result.get('error', '')}[/]")
+                console.print("[dim]GitHub'a yüklenmedi. Kod lokalde duruyor.[/]")
             else:
                 console.print(f"[bold red]❌ {idea['name']} oluşturulamadı: {result.get('error', 'Bilinmeyen hata')}[/]")
 
             # İlk uygulama başarılıysa devam et
             if i == 1:
                 if result["status"] != "success":
-                    console.print("\n[red]⚠️  İlk uygulama başarısız oldu. İşlem durduruluyor.[/]")
+                    sebep = ("kapıdan geçemedi" if result["status"] == "kapi_kirmizi"
+                             else "başarısız oldu")
+                    console.print(f"\n[red]⚠️  İlk uygulama {sebep}. İşlem durduruluyor.[/]")
                     break
                 else:
                     console.print("\n[green]✅ İlk uygulama başarılı! Diğer 9 uygulamaya devam ediliyor...[/]")
@@ -173,21 +180,28 @@ class BatchOrchestrator:
             tests = self.tester.generate_tests(code, idea["name"])
             console.print("[green]✅ Testler yazıldı![/]")
 
-            # 4. Proje klasörü oluştur
-            console.print("[dim]📁 Proje yapısı oluşturuluyor...[/]")
-            Path(app_path).mkdir(parents=True, exist_ok=True)
-            Path(f"{app_path}/lib").mkdir(exist_ok=True)
-            Path(f"{app_path}/test").mkdir(exist_ok=True)
+            # 4. Proje iskeleti: ÖNCE flutter create, SONRA dosyaların üzerine yazılır.
+            # (Sıra önemli: flutter create lib/main.dart'ı şablonla ezer.)
+            console.print("[dim]📁 Proje yapısı oluşturuluyor (flutter create)...[/]")
+            iskelet = self.github.create_flutter_project(app_path, app_slug)
 
-            # Dosyaları kaydet
+            if not iskelet.get("success"):
+                return {
+                    "status": "error",
+                    "error": f"Flutter projesi açılamadı: {iskelet.get('error', '')}",
+                    "idea": idea,
+                    "local_path": app_path,
+                }
+
+            # Dosyaları kaydet (iskeletin üzerine)
+            Path(f"{app_path}/lib").mkdir(parents=True, exist_ok=True)
+            Path(f"{app_path}/test").mkdir(parents=True, exist_ok=True)
+
             with open(f"{app_path}/lib/main.dart", "w", encoding="utf-8") as f:
                 f.write(code)
 
             with open(f"{app_path}/test/main_test.dart", "w", encoding="utf-8") as f:
                 f.write(tests)
-
-            # Flutter proje yapısı
-            self.github.create_flutter_project(app_path, app_slug)
 
             # README oluştur
             self.github.create_readme(app_path, idea)
@@ -198,7 +212,39 @@ class BatchOrchestrator:
 
             console.print("[green]✅ Proje yapısı hazır![/]")
 
-            # 5. GitHub'a yükle
+            # 5. DOĞRULAMA KAPISI - yeşil değilse GitHub'a hiç gitmez
+            console.print("[dim]🚦 Doğrulama kapısı: flutter analyze + flutter test...[/]")
+            kapi = kapidan_gecir(app_path)
+
+            # Kapı log'unu her hâlde diske yaz (kanıt kalsın)
+            kapi_log_yolu = f"{app_path}/kapi.log"
+            try:
+                with open(kapi_log_yolu, "w", encoding="utf-8") as f:
+                    f.write(kapi["log"])
+            except Exception:
+                pass
+
+            if not kapi["gecti"]:
+                console.print(f"[bold red]🚦 {kapi_ozeti(kapi)}[/]")
+                console.print(f"[dim]📄 Log: {kapi_log_yolu}[/]")
+                console.print("[yellow]⛔ Repo açılmadı, push yapılmadı.[/]")
+                return {
+                    "status": "kapi_kirmizi",
+                    "error": kapi_ozeti(kapi),
+                    "idea": idea,
+                    "plan": selected_plan,
+                    "local_path": app_path,
+                    "kapi": {
+                        "gecti": kapi["gecti"],
+                        "analyze_hata": kapi["analyze_hata"],
+                        "test_gecti": kapi["test_gecti"],
+                    },
+                    "kapi_log": kapi_log_yolu,
+                }
+
+            console.print(f"[bold green]🚦 {kapi_ozeti(kapi)}[/]")
+
+            # 6. GitHub'a yükle (yalnız kapı yeşilken buraya gelinir)
             console.print("[dim]📤 GitHub'a yükleniyor...[/]")
 
             # Repo oluştur
@@ -229,7 +275,12 @@ class BatchOrchestrator:
                     "idea": idea,
                     "plan": selected_plan,
                     "repo_url": repo_result["url"],
-                    "local_path": app_path
+                    "local_path": app_path,
+                    "kapi": {
+                        "gecti": True,
+                        "analyze_hata": kapi["analyze_hata"],
+                        "test_gecti": kapi["test_gecti"],
+                    },
                 }
             else:
                 return {
@@ -260,28 +311,47 @@ class BatchOrchestrator:
         table.add_column("GitHub Repo", style="blue", width=40)
 
         success_count = 0
+        kapi_kirmizi_count = 0
         for i, result in enumerate(self.results, 1):
             idea = result.get("idea", {})
-            status = "✅ Başarılı" if result["status"] == "success" else "❌ Hata"
-            status_style = "green" if result["status"] == "success" else "red"
-            repo_url = result.get("repo_url", result.get("error", "N/A"))[:40]
 
             if result["status"] == "success":
                 success_count += 1
+                status, status_style = "✅ Başarılı", "green"
+            elif result["status"] == "kapi_kirmizi":
+                kapi_kirmizi_count += 1
+                status, status_style = "🚦 Kapı kırmızı", "yellow"
+            else:
+                status, status_style = "❌ Hata", "red"
+
+            if result["status"] == "success":
+                son_kolon = result.get("repo_url", "N/A")
+            else:
+                son_kolon = result.get("error", "N/A")
 
             table.add_row(
                 str(i),
                 idea.get("name", "N/A"),
                 f"[{status_style}]{status}[/]",
-                repo_url
+                str(son_kolon)[:40]
             )
 
         console.print(table)
 
+        hata_count = len(self.results) - success_count - kapi_kirmizi_count
+
         # Özet
         console.print(f"\n[bold]Özet:[/]")
-        console.print(f"  ✅ Başarılı: {success_count}/{len(self.results)}")
-        console.print(f"  ❌ Başarısız: {len(self.results) - success_count}/{len(self.results)}")
+        console.print(f"  ✅ GitHub'a yüklendi: {success_count}/{len(self.results)}")
+        console.print(f"  🚦 Kapı kırmızı (yüklenmedi): {kapi_kirmizi_count}/{len(self.results)}")
+        console.print(f"  ❌ Hata: {hata_count}/{len(self.results)}")
+
+        if kapi_kirmizi_count > 0:
+            console.print(
+                f"\n[yellow]🚦 {kapi_kirmizi_count} uygulama `flutter analyze` / `flutter test` "
+                "kapısından geçemediği için GitHub'a gitmedi.[/]"
+            )
+            console.print(f"[dim]Her biri için log: {self.output_dir}/<slug>/kapi.log[/]")
 
         if success_count > 0:
             console.print(f"\n[green]🎉 {success_count} uygulama GitHub'a yüklendi![/]")

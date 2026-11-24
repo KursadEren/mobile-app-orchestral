@@ -1,3 +1,14 @@
+"""
+Tester Agent - Flutter test kodu üreten AI agent
+
+NOT: Çıktı artık kod_temizle()'den geçiyor. Önceden geçmiyordu ve
+LLM'in "Elbette, burada testler yazdım:" girişi doğrudan
+test/main_test.dart'a yazılıyordu; dosya Dart bile olmuyordu.
+"""
+
+from .temizle import kod_temizle
+
+
 class TesterAgent:
     """Flutter test kodu üreten AI agent"""
 
@@ -21,11 +32,14 @@ Gereksinimler:
 - find.byType, find.text kullan
 - En az 3-5 test senaryosu
 - Türkçe yorumlar
+- SADECE yukarıdaki kodda GERÇEKTEN VAR OLAN sınıfları ve widget'ları test et;
+  olmayan bir sınıf uydurma, aksi halde test derlenmez
+- Test ettiğin dosyayı doğru paket adıyla import et
 
 SADECE TEST KODUNU DÖNDÜR (import'larla birlikte)."""
 
         response = self.llm.invoke(prompt)
-        return response.content
+        return kod_temizle(response.content)
 
     def generate_unit_tests(self, model_code: str, model_name: str) -> str:
         """Model/Class için unit test üretir"""
@@ -43,4 +57,4 @@ Gereksinimler:
 SADECE TEST KODUNU DÖNDÜR."""
 
         response = self.llm.invoke(prompt)
-        return response.content
+        return kod_temizle(response.content)
