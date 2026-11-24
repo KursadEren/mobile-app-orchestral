@@ -3,12 +3,15 @@ Orchestrator Agent - Ana koordinatör
 Tüm agentları yönetir, kullanıcı etkileşimini sağlar
 """
 
+from pathlib import Path
 from typing import Dict, List, Optional
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
+
+from .kapi import kapidan_gecir, kapi_ozeti, paket_adi_uret, proje_iskeleti_kur
 
 console = Console()
 
@@ -29,6 +32,8 @@ class OrchestratorAgent:
         self.generated_code = None
         self.test_code = None
         self.review_result = None
+        self.kapi_result = None
+        self.proje_yolu = None
 
     def run(self, user_request: str) -> Dict:
         """Ana orkestrasyon döngüsü"""
@@ -55,13 +60,22 @@ class OrchestratorAgent:
         if not self._review_phase():
             return {"status": "cancelled", "reason": "Review'da onaylanmadı"}
 
-        return {
-            "status": "success",
+        # Adım 5: DOĞRULAMA KAPISI (flutter analyze + flutter test)
+        # Kapı kırmızıysa "başarıyla oluşturuldu" DENMEZ.
+        kapi_gecti = self._kapi_phase()
+
+        sonuc = {
+            "status": "success" if kapi_gecti else "kapi_kirmizi",
             "plan": self.selected_plan,
             "code": self.generated_code,
             "tests": self.test_code,
-            "review": self.review_result
+            "review": self.review_result,
+            "kapi": self.kapi_result,
+            "proje_yolu": self.proje_yolu,
         }
+        if not kapi_gecti:
+            sonuc["error"] = kapi_ozeti(self.kapi_result or {})
+        return sonuc
 
     def _planning_phase(self) -> bool:
         """Planlama aşaması - 3 seçenek sunar"""
@@ -284,3 +298,81 @@ class OrchestratorAgent:
             return Confirm.ask("[yellow]Uyarılar var. Yine de devam et?[/]", default=True)
 
         return True
+
+    def _kapi_phase(self) -> bool:
+        """
+        Doğrulama kapısı: üretilen kodu GERÇEK bir Flutter projesine koyup
+        `flutter analyze` ve `flutter test` çalıştırır.
+
+        Review bir LLM'in kanaatidir; burada derleyici konuşur.
+        Kapı kodu düzeltmeye çalışmaz, yalnız ölçer ve raporlar.
+        """
+        console.print("\n[bold yellow]📋 ADIM 5: DOĞRULAMA KAPISI[/]\n")
+
+        slug = paket_adi_uret(self.selected_plan.get("app_name", "tek_uygulama"))
+        self.proje_yolu = f"output/tek/{slug}"
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("[cyan]Flutter projesi açılıyor (flutter create)...", total=None)
+            iskelet = proje_iskeleti_kur(self.proje_yolu, slug)
+            progress.update(task, completed=True)
+
+        if not iskelet.get("success"):
+            self.kapi_result = {
+                "gecti": False,
+                "analyze_hata": -1,
+                "test_gecti": False,
+                "log": f"Flutter projesi açılamadı: {iskelet.get('error', '')}",
+            }
+            console.print(f"[bold red]❌ {iskelet.get('error', 'Proje açılamadı')}[/]")
+            return False
+
+        # Üretilen kodu iskeletin üzerine yaz
+        Path(f"{self.proje_yolu}/lib").mkdir(parents=True, exist_ok=True)
+        Path(f"{self.proje_yolu}/test").mkdir(parents=True, exist_ok=True)
+
+        with open(f"{self.proje_yolu}/lib/main.dart", "w", encoding="utf-8") as f:
+            f.write(self.generated_code or "")
+
+        with open(f"{self.proje_yolu}/test/main_test.dart", "w", encoding="utf-8") as f:
+            f.write(self.test_code or "")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("[cyan]flutter analyze + flutter test...", total=None)
+            self.kapi_result = kapidan_gecir(self.proje_yolu)
+            progress.update(task, completed=True)
+
+        # Log'u diske yaz
+        log_yolu = f"{self.proje_yolu}/kapi.log"
+        try:
+            with open(log_yolu, "w", encoding="utf-8") as f:
+                f.write(self.kapi_result["log"])
+        except Exception:
+            pass
+
+        if self.kapi_result["gecti"]:
+            console.print(Panel(
+                f"[bold green]🚦 {kapi_ozeti(self.kapi_result)}[/]\n\n"
+                f"[dim]Proje: {self.proje_yolu}[/]",
+                title="Doğrulama Kapısı",
+                border_style="green"
+            ))
+            return True
+
+        console.print(Panel(
+            f"[bold red]🚦 {kapi_ozeti(self.kapi_result)}[/]\n\n"
+            f"[yellow]Üretilen kod doğrulamadan geçmedi.[/]\n"
+            f"[dim]Proje: {self.proje_yolu}[/]\n"
+            f"[dim]Log:   {log_yolu}[/]",
+            title="Doğrulama Kapısı",
+            border_style="red"
+        ))
+        return False

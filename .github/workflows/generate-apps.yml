@@ -35,7 +35,6 @@ jobs:
           echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" > .env
           echo "GITHUB_TOKEN=${{ secrets.GH_PAT }}" >> .env
           echo "GITHUB_USERNAME=${{ github.repository_owner }}" >> .env
-          cat .env
 
       - name: Run App Generator (Auto Batch Mode)
         run: python main.py --auto-batch

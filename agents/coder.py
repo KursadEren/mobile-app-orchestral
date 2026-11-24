@@ -3,6 +3,8 @@ Coder Agent - Flutter kodu üreten AI agent
 İterasyon ve refinement desteği ile
 """
 
+from .temizle import kod_temizle
+
 
 class CoderAgent:
     """Flutter kodu üreten AI agent"""
@@ -125,18 +127,5 @@ SADECE DART KODUNU DÖNDÜR.
         return self._clean_code(code)
 
     def _clean_code(self, code: str) -> str:
-        """Kod çıktısını temizler"""
-        # Markdown code block'larını kaldır
-        if code.startswith("```dart"):
-            code = code.replace("```dart", "", 1)
-
-        if code.startswith("```"):
-            code = code.replace("```", "", 1)
-
-        if code.endswith("```"):
-            code = code.rsplit("```", 1)[0]
-
-        # Başındaki ve sonundaki boşlukları temizle
-        code = code.strip()
-
-        return code
+        """Kod çıktısını temizler (ortak temizleyici)"""
+        return kod_temizle(code)

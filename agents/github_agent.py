@@ -9,6 +9,8 @@ import shutil
 from typing import Dict, Optional
 from pathlib import Path
 
+from .kapi import paket_adi_uret, proje_iskeleti_kur
+
 
 class GitHubAgent:
     """GitHub işlemlerini yöneten agent"""
@@ -140,74 +142,21 @@ class GitHubAgent:
 
     def create_flutter_project(self, project_path: str, app_name: str) -> Dict:
         """
-        Flutter projesi oluşturur
+        GERÇEK bir Flutter projesi oluşturur (`flutter create`).
 
-        Args:
-            project_path: Proje dizini
-            app_name: Uygulama adı
+        Önceden burada elle pubspec.yaml yazılıyordu; o iskelet üzerinde
+        `flutter analyze` ve `flutter test` koşmuyordu, dolayısıyla kod hiç
+        doğrulanmıyordu. Artık iş `flutter create`'e bırakılıyor ve
+        flutter create'in bıraktığı test/widget_test.dart siliniyor
+        (olmayan MyApp'i çağırır, her zaman kırmızıdır).
 
-        Returns:
-            Sonuç dict'i
+        Flutter kurulu değilse sessizce sahte bir iskelet üretmek yerine
+        açık hata döner.
+
+        NOT: Bu çağrı lib/main.dart'ı flutter create'in şablonuyla yazar.
+        Üretilen kod BU ÇAĞRIDAN SONRA üzerine yazılmalıdır.
         """
-        try:
-            # Klasörü oluştur
-            Path(project_path).mkdir(parents=True, exist_ok=True)
-
-            # Flutter projesi oluştur
-            result = subprocess.run(
-                ["flutter", "create", "--project-name", app_name.replace("-", "_"), "."],
-                cwd=project_path,
-                capture_output=True,
-                text=True
-            )
-
-            if result.returncode == 0:
-                return {"success": True, "path": project_path}
-            else:
-                # Flutter yoksa basit yapı oluştur
-                return self._create_basic_structure(project_path, app_name)
-
-        except FileNotFoundError:
-            # Flutter yüklü değilse basit yapı oluştur
-            return self._create_basic_structure(project_path, app_name)
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    def _create_basic_structure(self, project_path: str, app_name: str) -> Dict:
-        """Flutter olmadan temel proje yapısı oluşturur"""
-        try:
-            Path(project_path).mkdir(parents=True, exist_ok=True)
-            Path(f"{project_path}/lib").mkdir(exist_ok=True)
-            Path(f"{project_path}/test").mkdir(exist_ok=True)
-
-            # pubspec.yaml oluştur
-            pubspec = f"""name: {app_name.replace("-", "_")}
-description: AI tarafından üretilmiş Flutter uygulaması
-version: 1.0.0+1
-
-environment:
-  sdk: '>=3.0.0 <4.0.0'
-
-dependencies:
-  flutter:
-    sdk: flutter
-  cupertino_icons: ^1.0.2
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^2.0.0
-
-flutter:
-  uses-material-design: true
-"""
-            with open(f"{project_path}/pubspec.yaml", "w") as f:
-                f.write(pubspec)
-
-            return {"success": True, "path": project_path}
-
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        return proje_iskeleti_kur(project_path, paket_adi_uret(app_name))
 
     def push_to_repo(self, local_path: str, repo_name: str, commit_message: str = "Initial commit") -> Dict:
         """
@@ -245,6 +194,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Doğrulama kapısı log'u (repoya gitmesin)
+kapi.log
 """
             with open(f"{local_path}/.gitignore", "w") as f:
                 f.write(gitignore_content)
